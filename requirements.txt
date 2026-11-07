@@ -4,3 +4,9 @@ sqlalchemy
 redis
 python-jose[cryptography]
 passlib[bcrypt]
+python-magic-bin
+python-multipart
+python-dotenv
+pydantic
+pydantic[email]
+pydantic-settings
