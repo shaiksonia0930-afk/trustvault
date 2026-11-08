@@ -1,3 +1,4 @@
+from pathlib import path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,17 +19,16 @@ app = FastAPI(
     description="Security Project - IDOR, JWT Revoke, Per-Person Permission, Immutable Audit",
     version="1.0.0"
 )
+BASE_DIR = Path(__file__).resolve().parent.parent
 @app.get("/", include_in_schema=False)
 def home():
-    return FileResponse("index.html")
+    return FileResponse(BASE_DIR / "index.html")
 @app.get("/features", include_in_schema=False)
 def features_page():
-    return FileResponse("features.html")
-
+    return FileResponse(BASE_DIR / "features.html")
 @app.get("/vault", include_in_schema=False)
 def vault_page():
-    return FileResponse("vault.html")
-
+    return FileResponse(BASE_DIR / "vault.html")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
