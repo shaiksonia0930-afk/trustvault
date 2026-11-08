@@ -1,146 +1,203 @@
-from fastapi.security import OAuth2PasswordRequestForm
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
-from fastapi.responses import FileResponse
+# app/api/__init__.py - COMPLETE FILE - TrustVault
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import List
-from jose import jwt
-import os
-from datetime import datetime, timezone
+from sqlalchemy import or_
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
+import os, shutil, magic
 
-from app.models import get_db, User, Document, Permission, AuditLog
-from app.schemas import UserCreate, UserLogin, Token, UserOut, DocumentOut, PermissionCreate, AuditOut
-from app.core.security import get_password_hash, verify_password, create_access_token, blacklist_token, get_current_active_user, oauth2_scheme, SECRET_KEY, ALGORITHM
-from app.core.permissions import check_read, check_edit, check_delete, audit_log
-from app.core.file_validator import validate_file
-from app.services import save_file_service, get_file_path_service, delete_file_service
+from app.database import get_db
+from app.models import User, Document, Permission, AuditLog
 
-# --- AUTH ROUTER ---
-auth_router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter()
 
-@auth_router.post("/register", response_model=UserOut)
-def register(user_in: UserCreate, db: Session = Depends(get_db), request: Request = None):
-    if db.query(User).filter(User.email == user_in.email).first():
+SECRET_KEY = os.getenv("SECRET_KEY", "trustvault-secret-key-change-in-prod")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+UPLOAD_DIR = "storage"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+try:
+    import redis
+    redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
+    redis_client.ping()
+    USE_REDIS = True
+except Exception:
+    redis_client = None
+    USE_REDIS = False
+    revoked_tokens = set()
+
+ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".docx"}
+MAX_SIZE = 10 * 1024 * 1024
+
+def hash_password(p: str):
+    return pwd_context.hash(p)
+
+def verify_password(plain: str, hashed: str):
+    return pwd_context.verify(plain, hashed)
+
+def create_token(data: dict):
+    to_encode = data.copy()
+    to_encode.update({"exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def is_revoked(token: str):
+    if USE_REDIS:
+        return redis_client.exists(f"blacklist:{token}")
+    return token in revoked_tokens
+
+def add_audit(db: Session, user_id: int, action: str, doc_id=None, details=""):
+    log = AuditLog(user_id=user_id, action=action, document_id=doc_id, details=details)
+    db.add(log)
+    db.commit()
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    if is_revoked(token):
+        raise HTTPException(status_code=401, detail="Token revoked. Please login again.")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+def is_admin(user: User):
+    return user.role == "ADMIN"
+
+@router.post("/auth/register")
+def register(name: str, email: str, password: str, role: str = "VIEWER", db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    role = user_in.role if user_in.role in ["ADMIN", "OWNER", "VIEWER"] else "OWNER"
-    user = User(email=user_in.email, hashed_password=get_password_hash(user_in.password), full_name=user_in.full_name, role=role)
+    user = User(name=name, email=email, password_hash=hash_password(password), role=role.upper())
     db.add(user)
     db.commit()
     db.refresh(user)
-    audit_log(db, user.id, None, "REGISTER", request.client.host if request else "unknown")
-    return user
+    add_audit(db, user.id, "REGISTER", details=f"Registered {email}")
+    return {"message": "User registered", "id": user.id, "email": user.email}
 
-@auth_router.post("/login", response_model=Token)
-@auth_router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db), request: Request = None):
+@router.post("/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token, jti, expire = create_access_token({"sub": user.email})
-    audit_log(db, user.id, None, "LOGIN", request.client.host if request else "unknown")
-    return {"access_token": token, "token_type": "bearer", "user": user}
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_token({"sub": user.email, "role": user.role})
+    add_audit(db, user.id, "LOGIN", details=f"Login {user.email}")
+    return {"access_token": token, "token_type": "bearer", "role": user.role}
 
-@auth_router.post("/logout")
-def logout(request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+@router.post("/auth/logout")
+def logout(token: str = Depends(oauth2_scheme), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if USE_REDIS:
+        redis_client.setex(f"blacklist:{token}", 3600, "revoked")
+    else:
+        revoked_tokens.add(token)
+    add_audit(db, current_user.id, "LOGOUT", details="Logout - token revoked")
+    return {"message": "Logged out. Token revoked."}
+
+@router.get("/auth/me")
+def me(current_user: User = Depends(get_current_user)):
+    return {"id": current_user.id, "name": current_user.name, "email": current_user.email, "role": current_user.role}
+
+@router.post("/documents/upload")
+def upload(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail="Only PDF, PNG, JPG, DOCX allowed")
+    content = file.file.read()
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Max 10MB")
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        jti = payload.get("jti")
-        exp = payload.get("exp")
-        email = payload.get("sub")
-        if jti and exp:
-            expire_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
-            blacklist_token(jti, expire_dt)
-            user = db.query(User).filter(User.email == email).first()
-            if user:
-                audit_log(db, user.id, None, "LOGOUT", request.client.host)
+        mime = magic.from_buffer(content, mime=True)
+        if "pdf" not in mime and "image" not in mime and "word" not in mime and "officedocument" not in mime and "zip" not in mime:
+            raise HTTPException(status_code=400, detail="Invalid file content")
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    return {"detail": "Logged out, token revoked"}
-
-@auth_router.get("/me", response_model=UserOut)
-def me(current_user: User = Depends(get_current_active_user)):
-    return current_user
-
-# --- DOCUMENTS ROUTER ---
-document_router = APIRouter(prefix="/documents", tags=["Documents"])
-
-@document_router.post("/upload", response_model=DocumentOut)
-async def upload_doc(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    file_bytes = await file.read()
-    mime = validate_file(file_bytes, file.filename)
-    stored_name, file_path = save_file_service(file_bytes, mime)
-    doc = Document(owner_id=current_user.id, filename=file.filename, stored_filename=stored_name, file_path=file_path, mime_type=mime, file_size=len(file_bytes))
+        pass
+    safe_name = f"{current_user.id}_{int(datetime.utcnow().timestamp())}_{file.filename}"
+    path = os.path.join(UPLOAD_DIR, safe_name)
+    with open(path, "wb") as f:
+        f.write(content)
+    doc = Document(filename=file.filename, filepath=path, owner_id=current_user.id)
     db.add(doc)
     db.commit()
     db.refresh(doc)
-    audit_log(db, current_user.id, doc.id, "UPLOAD", request.client.host, f"Uploaded {file.filename}")
-    return doc
+    add_audit(db, current_user.id, "UPLOAD", doc.id, f"Uploaded {file.filename}")
+    return {"message": "Uploaded", "id": doc.id, "filename": doc.filename}
 
-@document_router.get("/", response_model=List[DocumentOut])
-def list_docs(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    if current_user.role == "ADMIN":
-        return db.query(Document).all()
-    owned = db.query(Document).filter(Document.owner_id == current_user.id).all()
-    permitted_ids = [p[0] for p in db.query(Permission.document_id).filter(Permission.user_id == current_user.id, Permission.can_read == True).all()]
-    shared = db.query(Document).filter(Document.id.in_(permitted_ids)).all() if permitted_ids else []
-    return owned + shared
+@router.get("/documents/")
+def list_documents(search: str = "", current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    shared_ids = db.query(Permission.document_id).filter(Permission.user_id == current_user.id)
+    query = db.query(Document).filter(
+        or_(Document.owner_id == current_user.id, Document.id.in_(shared_ids))
+    )
+    if search:
+        query = query.filter(Document.filename.ilike(f"%{search}%"))
+    docs = query.all()
+    return [{"id": d.id, "filename": d.filename, "owner_id": d.owner_id} for d in docs]
 
-@document_router.get("/{doc_id}", response_model=DocumentOut)
-def get_doc(doc_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+@router.get("/documents/{doc_id}/download")
+def download(doc_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    check_read(current_user, doc, db, request.client.host)
-    return doc
+    is_owner = doc.owner_id == current_user.id
+    perm = db.query(Permission).filter(Permission.document_id == doc_id, Permission.user_id == current_user.id, Permission.can_read == True).first()
+    if not is_owner and not perm and not is_admin(current_user):
+        add_audit(db, current_user.id, "READ_FAILED", doc_id, f"IDOR blocked for {current_user.email}")
+        raise HTTPException(status_code=403, detail="Access Denied: No read permission (IDOR Blocked)")
+    add_audit(db, current_user.id, "DOWNLOAD", doc_id, f"Downloaded {doc.filename}")
+    from fastapi.responses import FileResponse
+    return FileResponse(doc.filepath, filename=doc.filename)
 
-@document_router.get("/{doc_id}/download")
-def download_doc(doc_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    doc = db.query(Document).filter(Document.id == doc_id).first()
+@router.post("/documents/{doc_id}/share")
+def share(doc_id: int, user_email: str, can_read: bool = True, can_edit: bool = False, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id, Document.owner_id == current_user.id).first()
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    check_read(current_user, doc, db, request.client.host)
-    path = get_file_path_service(doc.stored_filename)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="File missing")
-    audit_log(db, current_user.id, doc.id, "DOWNLOAD", request.client.host)
-    return FileResponse(path, filename=doc.filename, media_type=doc.mime_type)
-
-@document_router.post("/{doc_id}/share")
-def share_doc(doc_id: int, perm_in: PermissionCreate, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    doc = db.query(Document).filter(Document.id == doc_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    check_edit(current_user, doc, db, request.client.host)
-    target = db.query(User).filter(User.email == perm_in.user_email).first()
+        raise HTTPException(status_code=403, detail="Only owner can share")
+    target = db.query(User).filter(User.email == user_email).first()
     if not target:
-        raise HTTPException(status_code=404, detail="Target user not found")
-    existing = db.query(Permission).filter(Permission.document_id == doc_id, Permission.user_id == target.id).first()
-    if existing:
-        existing.can_read = perm_in.can_read
-        existing.can_edit = perm_in.can_edit
+        raise HTTPException(status_code=404, detail="User not found")
+    perm = db.query(Permission).filter(Permission.document_id == doc_id, Permission.user_id == target.id).first()
+    if perm:
+        perm.can_read = can_read
+        perm.can_edit = can_edit
     else:
-        db.add(Permission(document_id=doc_id, user_id=target.id, can_read=perm_in.can_read, can_edit=perm_in.can_edit, granted_by=current_user.id))
+        perm = Permission(document_id=doc_id, user_id=target.id, can_read=can_read, can_edit=can_edit)
+        db.add(perm)
     db.commit()
-    audit_log(db, current_user.id, doc_id, "PERMISSION_GRANT", request.client.host, f"Grant to {target.email}")
-    return {"detail": f"Shared with {target.email}"}
+    add_audit(db, current_user.id, "SHARE", doc_id, f"Shared with {user_email}")
+    return {"message": f"Shared with {user_email}"}
 
-@document_router.delete("/{doc_id}")
-def delete_doc(doc_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    doc = db.query(Document).filter(Document.id == doc_id).first()
+@router.delete("/documents/{doc_id}/share")
+def unshare_document(doc_id: int, user_email: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id, Document.owner_id == current_user.id).first()
     if not doc:
-        raise HTTPException(status_code=404, detail="Not found")
-    check_delete(current_user, doc)
-    delete_file_service(doc.stored_filename)
-    db.query(Permission).filter(Permission.document_id == doc_id).delete()
-    audit_log(db, current_user.id, doc_id, "DELETE", request.client.host, f"Deleted {doc.filename}")
-    db.delete(doc)
+        raise HTTPException(status_code=403, detail="Only owner can revoke share")
+    target = db.query(User).filter(User.email == user_email).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    perm = db.query(Permission).filter(Permission.document_id == doc_id, Permission.user_id == target.id).first()
+    if not perm:
+        raise HTTPException(status_code=404, detail="This user has no access to this document")
+    db.delete(perm)
     db.commit()
-    return {"detail": "Deleted"}
+    add_audit(db, current_user.id, "SHARE_REVOKED", doc_id, f"Revoked access for {user_email}")
+    return {"message": f"Access revoked for {user_email}"}
 
-# --- AUDIT ROUTER ---
-audit_router = APIRouter(prefix="/audit", tags=["Audit"])
-
-@audit_router.get("/", response_model=List[AuditOut])
-def get_logs(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    if current_user.role != "ADMIN":
-        raise HTTPException(status_code=403, detail="Only ADMIN can view audit logs")
-    return db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(100).all()
+@router.get("/audit/")
+def get_audit(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    logs = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(100).all()
+    return [{"id": l.id, "user_id": l.user_id, "action": l.action, "document_id": l.document_id, "details": l.details} for l in logs]
