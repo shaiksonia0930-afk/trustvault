@@ -76,4 +76,4 @@ def get_doc(doc_id: int, request: Request, db: Session = Depends(get_db), curren
     if not doc:
         raise HTTPException(status_code=404, detail="Not found")
     is_owner = doc.owner_id == current_user.id
-    perm = db.query(Permission).filter(Permission.document_id == doc_id, Permission.user_id == current_user.id, Permission
+    perm = db.query(Permission).filter(Permission.document_id == doc_id, Permission.user_id == current_user.id, Permission.can_read == True).first()
