@@ -21,6 +21,13 @@ app = FastAPI(
 @app.get("/", include_in_schema=False)
 def home():
     return FileResponse("index.html")
+@app.get("/features", include_in_schema=False)
+def features_page():
+    return FileResponse("features.html")
+
+@app.get("/vault", include_in_schema=False)
+def vault_page():
+    return FileResponse("vault.html")
 
 app.add_middleware(
     CORSMiddleware,
