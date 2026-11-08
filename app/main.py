@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
@@ -17,6 +18,9 @@ app = FastAPI(
     description="Security Project - IDOR, JWT Revoke, Per-Person Permission, Immutable Audit",
     version="1.0.0"
 )
+@app.get("/", include_in_schema=False)
+def home():
+    return FileResponse("index.html")
 
 app.add_middleware(
     CORSMiddleware,
