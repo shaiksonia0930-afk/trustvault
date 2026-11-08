@@ -3,7 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.database import get_db
+try:
+    from app.database import get_db
+except ImportError:
+    from app.models import get_db
 from app.models import User, Document, Permission
 from app.schemas import DocumentOut, AuditOut
 from app.core.security import get_current_active_user, get_password_hash, verify_password, create_access_token
