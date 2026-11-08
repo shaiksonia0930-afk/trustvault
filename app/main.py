@@ -18,6 +18,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# API Routers - Idi lekunte Docs lo No operations vastundi
+from app.api import router as api_router
+app.include_router(api_router)
 
 # ---- Homepage - File unte file chupistundi, lekapothe simple page chupistundi - Error radu ----
 @app.get("/", include_in_schema=False)
