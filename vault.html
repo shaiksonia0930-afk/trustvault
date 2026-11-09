@@ -7,7 +7,7 @@
 <style>
   *{box-sizing:border-box;font-family:Inter,Arial,sans-serif}
   body{margin:0;background:#0f172a;color:#fff;min-height:100vh;padding:20px}
-  .wrap{max-width:520px;margin:0 auto}
+  .wrap{max-width:640px;margin:0 auto}
   .card{background:#fff;color:#111;border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
   h2{margin:0 0 14px;font-size:22px}
   .tabs{display:flex;gap:8px;margin-bottom:14px}
@@ -26,7 +26,10 @@
   .doc{border-top:1px solid #e2e8f0;padding:12px 0}
   .doc b{display:block}
   .link{color:#2563eb;text-decoration:none;font-weight:700}
-  .log{border-top:1px solid #e2e8f0;padding:8px 0;font-size:14px}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th{background:#111827;color:#fff;padding:8px;text-align:left}
+  td{padding:8px;border-bottom:1px solid #e2e8f0;word-break:break-word}
+  tr:nth-child(even){background:#f8fafc}
 </style>
 </head>
 <body>
@@ -36,7 +39,6 @@
     <p style="color:#cbd5e1;margin:6px 0 0">Your Documents. Only Your People.</p>
     <a class="link" href="/">← Back to Home</a>
   </div>
-
   <div class="card">
     <h2>Welcome to Your Vault</h2>
     <div class="tabs">
@@ -59,7 +61,6 @@
     <button class="btn" style="background:#f1f5f9;color:#111;margin-top:6px" onclick="doLogout()">Logout & Revoke Token</button>
     <button class="btn" style="background:#f1f5f9;color:#111;margin-top:6px" onclick="loadDocs()">Refresh My Documents</button>
   </div>
-
   <div class="card">
     <h2>My Documents</h2>
     <input id="searchBox" placeholder="Search - ex: resume" oninput="loadDocs()">
@@ -68,7 +69,6 @@
     <div id="uploadMsg" class="msg"></div>
     <div id="docList"></div>
   </div>
-
   <div class="card">
     <h2>Audit Log</h2>
     <p class="small" style="text-align:left;margin:0 0 10px">Only Admin can view audit log. Login as Admin to see all actions.</p>
@@ -77,7 +77,6 @@
     <div id="auditList"></div>
   </div>
 </div>
-
 <script>
 let token = localStorage.getItem('trustvault_token') || '';
 function showTab(t){
@@ -138,17 +137,7 @@ async function loadDocs(){
     if(!r.ok){ showMsg('authMsg', d.detail || 'Not authenticated', false); return; }
     const list = document.getElementById('docList');
     if(!d.length){ list.innerHTML = '<p class="small">No documents found. Upload a document.</p>'; return; }
-    list.innerHTML = d.map(doc => `
-      <div class="doc">
-        <b>${doc.filename}</b>
-        <span class="small">ID: ${doc.id}</span>
-        <div class="row" style="margin-top:8px">
-          <button onclick="doDownload(${doc.id},'${doc.filename}')">Download</button>
-          <button onclick="doShare(${doc.id})">Share</button>
-          <button onclick="doUnshare(${doc.id})">Unshare</button>
-        </div>
-      </div>
-    `).join('');
+    list.innerHTML = d.map(doc => `<div class="doc"><b>${doc.filename}</b><span class="small">ID: ${doc.id}</span><div class="row" style="margin-top:8px"><button onclick="doDownload(${doc.id},'${doc.filename}')">Download</button><button onclick="doShare(${doc.id})">Share</button><button onclick="doUnshare(${doc.id})">Unshare</button></div></div>`).join('');
   }catch(e){ showMsg('authMsg','Network error: ' + e.message, false); }
 }
 async function doUpload(){
@@ -202,9 +191,7 @@ async function loadAudit(){
     if(!r.ok){ showMsg('auditMsg', d.detail || 'Admin only - Please login as Admin', false); return; }
     if(!d.length){ showMsg('auditMsg','No audit logs yet', true); return; }
     showMsg('auditMsg','Audit Log loaded - ' + d.length + ' records', true);
-    document.getElementById('auditList').innerHTML = d.map(l => `
-      <div class="log"><b>${l.action}</b> - ${l.user_email || ''} - Doc: ${l.doc_id || '-'} - ${l.timestamp || ''}</div>
-    `).join('');
+    document.getElementById('auditList').innerHTML = `<table><tr><th>Name</th><th>Email</th><th>Action</th><th>Document</th><th>Time</th></tr>${d.map(l => `<tr><td><b>${l.user_name || '-'}</b></td><td>${l.user_email || '-'}</td><td><b>${l.action || '-'}</b></td><td>${l.document_name || ('ID ' + (l.doc_id || '-'))}</td><td>${l.timestamp || ''}</td></tr>`).join('')}</table>`;
   }catch(e){ showMsg('auditMsg','Network error: ' + e.message, false); }
 }
 if(token) loadDocs();
