@@ -2,24 +2,159 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TrustVault - My Vault</title>
 <style>
-  *{box-sizing:border-box;font-family:Inter,Arial,sans-serif}
-  body{margin:0;background:#0f172a;color:#fff;min-height:100vh;padding:20px}
-  .wrap{max-width:640px;margin:0 auto}
-  .card{background:#fff;color:#111;border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
-  h2{margin:0 0 14px;font-size:22px}
-  .tabs{display:flex;gap:8px;margin-bottom:14px}
-  .tabs button{flex:1;padding:10px;border:0;border-radius:10px;cursor:pointer;font-weight:700;background:#e2e8f0}
-  .tabs button.active{background:#2563eb;color:#fff}
-  input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:10px;font-size:15px}
-  .btn{width:100%;padding:13px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer;font-size:15px}
-  .btn.green{background:#0891b2}
-  .btn.dark{background:#111827}
-  .msg{margin:10px 0;font-weight:600;font-size:14px}
-  .msg.ok{color:#15803d}
-  .msg.err{color:#dc2626}
-  .small{font-size:13px;color:#64748b;text-align:center;margin-top:8px}
-  .row{display:flex;gap:8px}
-  .row button{padding:7px 12px;border
+body{margin:0;background:#0f172a;color:#fff;font-family:Arial;padding:20px}
+.wrap{max-width:640px;margin:0 auto}
+.card{background:#fff;color:#111;border-radius:16px;padding:20px;margin-bottom:16px}
+input{width:100%;padding:11px;border:1px solid #ccc;border-radius:10px;margin-bottom:10px}
+.btn{width:100%;padding:12px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
+.btn2{width:100%;padding:10px;border:1px solid #ccc;border-radius:10px;background:#f1f5f9;cursor:pointer;margin-top:6px}
+.msg{margin:8px 0;font-weight:700;font-size:14px}
+.ok{color:green}.err{color:red}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+th{background:#111827;color:#fff;padding:8px;text-align:left}
+td{padding:8px;border-bottom:1px solid #eee}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1 style="text-align:center">TrustVault</h1>
+<p style="text-align:center">Your Documents. Only Your People.</p>
+<div class="card">
+<h2>Login / Register</h2>
+<button class="btn2" onclick="showTab('login')">Login</button>
+<button class="btn2" onclick="showTab('register')">Register</button>
+<div id="loginBox">
+<input id="loginEmail" placeholder="Email">
+<input id="loginPassword" type="password" placeholder="Password">
+<button class="btn" onclick="doLogin()">Login</button>
+</div>
+<div id="registerBox" style="display:none">
+<input id="regName" placeholder="Full Name">
+<input id="regEmail" placeholder="Email">
+<input id="regPassword" type="password" placeholder="Password">
+<button class="btn" onclick="doRegister()">Create Account</button>
+</div>
+<div id="authMsg" class="msg"></div>
+<button class="btn2" onclick="doLogout()">Logout</button>
+</div>
+<div class="card">
+<h2>My Documents</h2>
+<input id="searchBox" placeholder="Search" oninput="loadDocs()">
+<input id="fileInput" type="file">
+<button class="btn" onclick="doUpload()">Upload Document</button>
+<div id="uploadMsg" class="msg"></div>
+<div id="docList"></div>
+</div>
+<div class="card">
+<h2>Audit Log</h2>
+<button class="btn" onclick="loadAudit()">View Audit Log</button>
+<div id="auditMsg" class="msg"></div>
+<div id="auditList"></div>
+</div>
+</div>
+<script>
+var token = localStorage.getItem('tv_token') || '';
+function showTab(t){
+document.getElementById('loginBox').style.display = t==='login' ? 'block':'none';
+document.getElementById('registerBox').style.display = t==='register' ? 'block':'none';
+}
+function msg(id, txt, ok){
+var e=document.getElementById(id); e.textContent=txt; e.className='msg '+(ok?'ok':'err');
+}
+async function doRegister(){
+var name=document.getElementById('regName').value.trim();
+var email=document.getElementById('regEmail').value.trim();
+var password=document.getElementById('regPassword').value;
+if(!name||!email||!password){msg('authMsg','Please fill all fields',false);return;}
+try{
+var p=new URLSearchParams({name:name,email:email,password:password});
+var r=await fetch('/auth/register?'+p.toString(),{method:'POST'});
+var d=await r.json();
+msg('authMsg',d.message||'Account created! Please Login now',true);
+if(d.message&&d.message.indexOf('created')!==-1) showTab('login');
+}catch(e){msg('authMsg','Network error',false);}
+}
+async function doLogin(){
+var email=document.getElementById('loginEmail').value.trim();
+var password=document.getElementById('loginPassword').value;
+if(!email||!password){msg('authMsg','Please enter email and password',false);return;}
+try{
+var p=new URLSearchParams({email:email,password:password});
+var r=await fetch('/auth/login?'+p.toString(),{method:'POST'});
+var d=await r.json();
+if(!r.ok){msg('authMsg',d.detail||'Invalid email or password',false);return;}
+token=d.access_token; localStorage.setItem('tv_token',token);
+msg('authMsg','Login Success!',true); loadDocs();
+}catch(e){msg('authMsg','Network error',false);}
+}
+async function doLogout(){
+try{if(token) await fetch('/auth/logout',{method:'POST',headers:{'Authorization':'Bearer '+token}});}catch(e){}
+token=''; localStorage.removeItem('tv_token'); msg('authMsg','Logged out',true);
+document.getElementById('docList').innerHTML=''; document.getElementById('auditList').innerHTML='';
+}
+async function loadDocs(){
+if(!token) return;
+var q=document.getElementById('searchBox').value.trim();
+var url='/documents/?'; if(q) url+='search='+encodeURIComponent(q);
+try{
+var r=await fetch(url,{headers:{'Authorization':'Bearer '+token}});
+var d=await r.json();
+if(!r.ok){msg('authMsg',d.detail||'Not authenticated',false);return;}
+var list=document.getElementById('docList');
+if(!d.length){list.innerHTML='No documents found.';return;}
+var h='';
+for(var i=0;i<d.length;i++){h+='<div style="border-top:1px solid #eee;padding:10px 0"><b>'+d[i].filename+'</b><br>ID: '+d[i].id+'<br><button onclick="doDownload('+d[i].id+',\''+d[i].filename+'\')">Download</button> <button onclick="doShare('+d[i].id+')">Share</button> <button onclick="doUnshare('+d[i].id+')">Unshare</button></div>';}
+list.innerHTML=h;
+}catch(e){msg('authMsg','Network error',false);}
+}
+async function doUpload(){
+var f=document.getElementById('fileInput').files[0];
+if(!f){msg('uploadMsg','Please choose a file',false);return;}
+if(!token){msg('uploadMsg','Please login first',false);return;}
+var fd=new FormData(); fd.append('file',f);
+try{
+var r=await fetch('/documents/upload',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+var d=await r.json();
+if(!r.ok){msg('uploadMsg',d.detail||'Upload failed',false);return;}
+msg('uploadMsg','Upload Success: '+d.filename,true); loadDocs();
+}catch(e){msg('uploadMsg','Network error',false);}
+}
+async function doDownload(id,filename){
+try{
+var r=await fetch('/documents/'+id+'/download',{headers:{'Authorization':'Bearer '+token}});
+if(!r.ok){alert('Download failed');return;}
+var b=await r.blob(); var a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=filename; a.click();
+}catch(e){alert('Download failed');}
+}
+async function doShare(id){
+var email=prompt('Enter email to share with:'); if(!email) return;
+var p=new URLSearchParams({user_email:email});
+var r=await fetch('/documents/'+id+'/share?'+p.toString(),{method:'POST',headers:{'Authorization':'Bearer '+token}});
+var d=await r.json(); alert(d.message||d.detail||'Shared'); loadDocs();
+}
+async function doUnshare(id){
+var email=prompt('Enter email to unshare:'); if(!email) return;
+var p=new URLSearchParams({user_email:email});
+var r=await fetch('/documents/'+id+'/share?'+p.toString(),{method:'DELETE',headers:{'Authorization':'Bearer '+token}});
+var d=await r.json(); alert(d.message||d.detail||'Unshared'); loadDocs();
+}
+async function loadAudit(){
+if(!token){msg('auditMsg','Please login as Admin first',false);return;}
+try{
+var r=await fetch('/audit/',{headers:{'Authorization':'Bearer '+token}});
+var d=await r.json();
+if(!r.ok){msg('auditMsg',d.detail||'Admin only',false);return;}
+if(!d.length){msg('auditMsg','No audit logs yet',true);return;}
+msg('auditMsg','Audit Log loaded - '+d.length+' records',true);
+var h='<table><tr><th>Name</th><th>Email</th><th>Action</th><th>Document</th><th>Time</th></tr>';
+for(var i=0;i<d.length;i++){var l=d[i]; h+='<tr><td>'+(l.user_name||'-')+'</td><td>'+(l.user_email||'-')+'</td><td>'+(l.action||'-')+'</td><td>'+(l.document_name||('ID '+(l.doc_id||'-')))+'</td><td>'+(l.timestamp||'')+'</td></tr>';}
+h+='</table>';
+document.getElementById('auditList').innerHTML=h;
+}catch(e){msg('auditMsg','Network error',false);}
+}
+if(token) loadDocs();
+</script>
+</body>
+</html>
