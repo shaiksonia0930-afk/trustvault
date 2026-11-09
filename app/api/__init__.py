@@ -1,5 +1,5 @@
-# app/api/__init__.py - TrustVault FULL FILE - Header Fix Version
-import hashlib
+# app/api/__init__.py - TrustVault FULL FILE - Upload Fix Version
+import hashlib, uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -8,7 +8,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
-# ---------- get_db ----------
 try:
     from app.database import get_db, SessionLocal, engine
 except ImportError:
@@ -17,7 +16,6 @@ except ImportError:
     except ImportError:
         from app.db import get_db, SessionLocal, engine
 
-# ---------- Models ----------
 try:
     from app.models import User, Document, Permission, AuditLog
 except ImportError:
@@ -42,13 +40,16 @@ def _hash_password(password: str) -> str:
 def _verify_password(password: str, hashed: str) -> bool:
     try:
         from app.security import verify_password as _vp
-        return _vp(password, hashed)
+        r = _vp(password, hashed)
+        if r: return True
     except Exception:
-        try:
-            from app.services.security import verify_password as _vp2
-            return _vp2(password, hashed)
-        except Exception:
-            return hashlib.sha256(password.encode()).hexdigest() == hashed
+        pass
+    try:
+        from app.services.security import verify_password as _vp2
+        if _vp2(password, hashed): return True
+    except Exception:
+        pass
+    return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 def _create_token(email: str) -> str:
     try:
@@ -87,8 +88,7 @@ def _get_user_password(user):
     for f in ["password_hash", "hashed_password", "password"]:
         if hasattr(user, f):
             v = getattr(user, f)
-            if v:
-                return v
+            if v: return v
     return ""
 
 def _get_role_value(role_str: str):
@@ -102,8 +102,7 @@ def _get_role_value(role_str: str):
     return role_str
 
 def _audit(db: Session, user_email: str, action: str, doc_id=None):
-    if AuditLog is None:
-        return
+    if AuditLog is None: return
     try:
         cols = [c.key for c in sa_inspect(AuditLog).columns]
         data = {}
@@ -114,14 +113,12 @@ def _audit(db: Session, user_email: str, action: str, doc_id=None):
         if "document_id" in cols and doc_id is not None: data["document_id"] = doc_id
         if "timestamp" in cols: data["timestamp"] = datetime.utcnow()
         elif "created_at" in cols: data["created_at"] = datetime.utcnow()
-        log = AuditLog(**data)
-        db.add(log)
+        db.add(AuditLog(**data))
         db.commit()
     except Exception:
         try: db.rollback()
         except Exception: pass
 
-# ---------- FIXED: Header tho token chaduvutundi ----------
 def get_current_user(authorization: str = Header(None), token: str = Query(None), db: Session = Depends(get_db)):
     raw = None
     if authorization and authorization.startswith("Bearer "):
@@ -203,7 +200,7 @@ def list_documents(search: str = Query(None), db: Session = Depends(get_db), cur
     docs = q.all()
     out = []
     for d in docs:
-        fname = getattr(d, "filename", "") or getattr(d, "name", "") or ""
+        fname = getattr(d, "filename", "") or getattr(d, "name", "") or getattr(d, "stored_filename", "") or ""
         if search and search.lower() not in fname.lower():
             continue
         out.append({"id": d.id, "filename": fname, "owner": getattr(d, "owner_id", ""), "message": "ok"})
@@ -213,22 +210,30 @@ def list_documents(search: str = Query(None), db: Session = Depends(get_db), cur
 def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     UPLOAD_DIR = Path("uploads")
     UPLOAD_DIR.mkdir(exist_ok=True)
-    dest = UPLOAD_DIR / file.filename
     content = file.file.read()
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large, max 10MB")
+    # FIX: stored_filename, mime_type, file_size anni fill chestunna
+    stored = f"{uuid.uuid4().hex}_{file.filename}"
+    dest = UPLOAD_DIR / stored
     dest.write_bytes(content)
     try:
         cols = [c.key for c in sa_inspect(Document).columns]
         data = {}
         if "filename" in cols: data["filename"] = file.filename
-        elif "name" in cols: data["name"] = file.filename
+        if "name" in cols: data["name"] = file.filename
+        if "stored_filename" in cols: data["stored_filename"] = stored
         if "owner_id" in cols: data["owner_id"] = current_user.id
-        elif "owner" in cols: data["owner"] = current_user.id
+        if "owner" in cols: data["owner"] = current_user.id
         if "filepath" in cols: data["filepath"] = str(dest)
-        elif "file_path" in cols: data["file_path"] = str(dest)
-        elif "path" in cols: data["path"] = str(dest)
+        if "file_path" in cols: data["file_path"] = str(dest)
+        if "path" in cols: data["path"] = str(dest)
+        if "mime_type" in cols: data["mime_type"] = file.content_type or "application/octet-stream"
+        if "content_type" in cols: data["content_type"] = file.content_type or "application/octet-stream"
+        if "file_size" in cols: data["file_size"] = len(content)
         if "size" in cols: data["size"] = len(content)
+        if "created_at" in cols: data["created_at"] = datetime.utcnow()
+        if "uploaded_at" in cols: data["uploaded_at"] = datetime.utcnow()
         doc = Document(**data)
         db.add(doc)
         db.commit()
@@ -262,11 +267,15 @@ def get_doc(doc_id: int, db: Session = Depends(get_db), current_user=Depends(get
 def download_doc(doc_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     info = get_doc(doc_id, db, current_user)
     doc = db.query(Document).filter(Document.id == doc_id).first()
-    for f in ["filepath", "file_path", "path"]:
+    for f in ["filepath", "file_path", "path", "stored_filename"]:
         p = getattr(doc, f, None)
-        if p and Path(str(p)).exists():
-            _audit(db, current_user.email, "DOWNLOAD", doc_id)
-            return FileResponse(str(p), filename=info["filename"])
+        if p:
+            full = Path(str(p))
+            if not full.exists() and (Path("uploads") / str(p)).exists():
+                full = Path("uploads") / str(p)
+            if full.exists():
+                _audit(db, current_user.email, "DOWNLOAD", doc_id)
+                return FileResponse(str(full), filename=info["filename"])
     raise HTTPException(status_code=404, detail="File not found on disk")
 
 @router.post("/documents/{doc_id}/share")
