@@ -16,6 +16,7 @@
   input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:10px;font-size:15px}
   .btn{width:100%;padding:13px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer;font-size:15px}
   .btn.green{background:#0891b2}
+  .btn.dark{background:#111827}
   .msg{margin:10px 0;font-weight:600;font-size:14px}
   .msg.ok{color:#15803d}
   .msg.err{color:#dc2626}
@@ -25,6 +26,7 @@
   .doc{border-top:1px solid #e2e8f0;padding:12px 0}
   .doc b{display:block}
   .link{color:#2563eb;text-decoration:none;font-weight:700}
+  .log{border-top:1px solid #e2e8f0;padding:8px 0;font-size:14px}
 </style>
 </head>
 <body>
@@ -41,21 +43,18 @@
       <button id="tabLogin" class="active" onclick="showTab('login')">Login</button>
       <button id="tabRegister" onclick="showTab('register')">Register</button>
     </div>
-
     <div id="loginBox">
       <input id="loginEmail" type="email" placeholder="Email - ex: sonia@gmail.com">
       <input id="loginPassword" type="password" placeholder="Password">
       <button class="btn" onclick="doLogin()">Login →</button>
       <div class="small">Demo: sonia@test.com / password123</div>
     </div>
-
     <div id="registerBox" style="display:none">
       <input id="regName" type="text" placeholder="Full Name - ex: Shaik Sonia">
       <input id="regEmail" type="email" placeholder="Email - ex: sonia@gmail.com">
       <input id="regPassword" type="password" placeholder="Password">
       <button class="btn" onclick="doRegister()">Create Account</button>
     </div>
-
     <div id="authMsg" class="msg"></div>
     <button class="btn" style="background:#f1f5f9;color:#111;margin-top:6px" onclick="doLogout()">Logout & Revoke Token</button>
     <button class="btn" style="background:#f1f5f9;color:#111;margin-top:6px" onclick="loadDocs()">Refresh My Documents</button>
@@ -69,11 +68,18 @@
     <div id="uploadMsg" class="msg"></div>
     <div id="docList"></div>
   </div>
+
+  <div class="card">
+    <h2>Audit Log</h2>
+    <p class="small" style="text-align:left;margin:0 0 10px">Only Admin can view audit log. Login as Admin to see all actions.</p>
+    <button class="btn dark" onclick="loadAudit()">View Audit Log</button>
+    <div id="auditMsg" class="msg"></div>
+    <div id="auditList"></div>
+  </div>
 </div>
 
 <script>
 let token = localStorage.getItem('trustvault_token') || '';
-
 function showTab(t){
   document.getElementById('loginBox').style.display = t==='login' ? 'block':'none';
   document.getElementById('registerBox').style.display = t==='register' ? 'block':'none';
@@ -114,15 +120,12 @@ async function doLogin(){
   }catch(e){ showMsg('authMsg','Network error: ' + e.message, false); }
 }
 async function doLogout(){
-  try{
-    if(token){
-      await fetch('/auth/logout', {method:'POST', headers:{'Authorization':'Bearer ' + token}});
-    }
-  }catch(e){}
+  try{ if(token) await fetch('/auth/logout', {method:'POST', headers:{'Authorization':'Bearer ' + token}}); }catch(e){}
   token = '';
   localStorage.removeItem('trustvault_token');
   showMsg('authMsg','Logged out', true);
   document.getElementById('docList').innerHTML = '';
+  document.getElementById('auditList').innerHTML = '';
 }
 async function loadDocs(){
   if(!token) return;
@@ -190,6 +193,19 @@ async function doUnshare(id){
   const d = await r.json();
   alert(d.message || d.detail || 'Unshared');
   loadDocs();
+}
+async function loadAudit(){
+  if(!token){ showMsg('auditMsg','Please login as Admin first', false); return; }
+  try{
+    const r = await fetch('/audit/', {headers:{'Authorization':'Bearer ' + token}});
+    const d = await r.json();
+    if(!r.ok){ showMsg('auditMsg', d.detail || 'Admin only - Please login as Admin', false); return; }
+    if(!d.length){ showMsg('auditMsg','No audit logs yet', true); return; }
+    showMsg('auditMsg','Audit Log loaded - ' + d.length + ' records', true);
+    document.getElementById('auditList').innerHTML = d.map(l => `
+      <div class="log"><b>${l.action}</b> - ${l.user_email || ''} - Doc: ${l.doc_id || '-'} - ${l.timestamp || ''}</div>
+    `).join('');
+  }catch(e){ showMsg('auditMsg','Network error: ' + e.message, false); }
 }
 if(token) loadDocs();
 </script>
