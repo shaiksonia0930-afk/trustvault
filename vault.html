@@ -92,7 +92,7 @@ async function doRegister(){
   if(!name || !email || !password){ showMsg('authMsg','Please fill all fields',false); return; }
   try{
     const params = new URLSearchParams({name, email, password});
-    const r = await fetch('/api/auth/register?' + params.toString(), {method:'POST'});
+    const r = await fetch('/auth/register?' + params.toString(), {method:'POST'});
     const d = await r.json();
     showMsg('authMsg', d.message || 'Account created! Please Login now', true);
     if(d.message && d.message.includes('created')) showTab('login');
@@ -104,7 +104,7 @@ async function doLogin(){
   if(!email || !password){ showMsg('authMsg','Please enter email and password',false); return; }
   try{
     const params = new URLSearchParams({email, password});
-    const r = await fetch('/api/auth/login?' + params.toString(), {method:'POST'});
+    const r = await fetch('/auth/login?' + params.toString(), {method:'POST'});
     const d = await r.json();
     if(!r.ok){ showMsg('authMsg', d.detail || 'Invalid email or password', false); return; }
     token = d.access_token;
@@ -116,7 +116,7 @@ async function doLogin(){
 async function doLogout(){
   try{
     if(token){
-      await fetch('/api/auth/logout', {method:'POST', headers:{'Authorization':'Bearer ' + token}});
+      await fetch('/auth/logout', {method:'POST', headers:{'Authorization':'Bearer ' + token}});
     }
   }catch(e){}
   token = '';
@@ -127,7 +127,7 @@ async function doLogout(){
 async function loadDocs(){
   if(!token) return;
   const search = document.getElementById('searchBox').value.trim();
-  let url = '/api/documents/?';
+  let url = '/documents/?';
   if(search) url += 'search=' + encodeURIComponent(search);
   try{
     const r = await fetch(url, {headers:{'Authorization':'Bearer ' + token}});
@@ -155,7 +155,7 @@ async function doUpload(){
   const fd = new FormData();
   fd.append('file', f);
   try{
-    const r = await fetch('/api/documents/upload', {method:'POST', headers:{'Authorization':'Bearer ' + token}, body: fd});
+    const r = await fetch('/documents/upload', {method:'POST', headers:{'Authorization':'Bearer ' + token}, body: fd});
     const d = await r.json();
     if(!r.ok){ showMsg('uploadMsg', d.detail || 'Upload failed', false); return; }
     showMsg('uploadMsg','Upload Success: ' + d.filename, true);
@@ -164,7 +164,7 @@ async function doUpload(){
 }
 async function doDownload(id, filename){
   try{
-    const r = await fetch('/api/documents/' + id + '/download', {headers:{'Authorization':'Bearer ' + token}});
+    const r = await fetch('/documents/' + id + '/download', {headers:{'Authorization':'Bearer ' + token}});
     if(!r.ok){ alert('Download failed'); return; }
     const blob = await r.blob();
     const a = document.createElement('a');
@@ -177,7 +177,7 @@ async function doShare(id){
   const email = prompt('Enter email to share with:');
   if(!email) return;
   const params = new URLSearchParams({user_email: email});
-  const r = await fetch('/api/documents/' + id + '/share?' + params.toString(), {method:'POST', headers:{'Authorization':'Bearer ' + token}});
+  const r = await fetch('/documents/' + id + '/share?' + params.toString(), {method:'POST', headers:{'Authorization':'Bearer ' + token}});
   const d = await r.json();
   alert(d.message || d.detail || 'Shared');
   loadDocs();
@@ -186,7 +186,7 @@ async function doUnshare(id){
   const email = prompt('Enter email to unshare:');
   if(!email) return;
   const params = new URLSearchParams({user_email: email});
-  const r = await fetch('/api/documents/' + id + '/share?' + params.toString(), {method:'DELETE', headers:{'Authorization':'Bearer ' + token}});
+  const r = await fetch('/documents/' + id + '/share?' + params.toString(), {method:'DELETE', headers:{'Authorization':'Bearer ' + token}});
   const d = await r.json();
   alert(d.message || d.detail || 'Unshared');
   loadDocs();
