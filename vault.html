@@ -1,28 +1,197 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>My Vault - TrustVault</title>
-<style>body{font-family:Arial,sans-serif;background:#0f172a;color:#fff;margin:0;padding:20px}h1{margin:0}.sub{color:#93c5fd}.card{background:#fff;color:#111;border-radius:16px;padding:20px;max-width:480px;margin:20px auto}.tabs{display:flex;gap:8px}.tabs button{flex:1;padding:10px;border-radius:10px;border:0;cursor:pointer;font-weight:bold}.tabs .active{background:#111;color:#fff}.tabs .inactive{background:#e5e7eb}input,select{width:100%;padding:10px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box}.btn{width:100%;padding:12px;background:#0284c7;color:#fff;border:0;border-radius:10px;font-weight:bold;cursor:pointer}.btn2{width:100%;padding:10px;background:#fff;color:#0284c7;border:1px solid #bae6fd;border-radius:10px;margin-top:8px;cursor:pointer}.msg{color:#dc2626;margin-top:10px;word-break:break-word}.ok{color:#16a34a}.doc{border:1px solid #eee;border-radius:10px;padding:10px;margin:8px 0}</style>
-</head><body>
-<h1>🔒 My Vault - Login, Upload, Share</h1><p class="sub">Ikkada login chesi, nee documents upload / download / share cheyochu.</p>
-<div class="card"><h2>🔒 Login / Register</h2>
-<div class="tabs"><button id="tabLogin" class="active" onclick="showTab('login')">Login</button><button id="tabReg" class="inactive" onclick="showTab('reg')">Register</button></div>
-<div id="regBox" style="display:none"><input id="regName" placeholder="Name - ex: sonia"><input id="regEmail" placeholder="Email - ex: sonia@gmail.com"><input id="regPass" type="password" placeholder="Password"><select id="regRole"><option value="VIEWER">Role: VIEWER</option><option value="ADMIN">Role: ADMIN</option></select><button class="btn" onclick="doRegister()">Create Account</button></div>
-<div id="loginBox"><input id="logEmail" placeholder="Email - ex: sonia@gmail.com"><input id="logPass" type="password" placeholder="Password"><button class="btn" onclick="doLogin()">Login →</button><p style="color:#888;font-size:12px;text-align:center">Demo: sonia@test.com / password123</p></div>
-<div id="msg" class="msg"></div>
-<button class="btn2" onclick="doLogout()">Logout & Revoke Token</button><button class="btn2" onclick="loadDocs()">Refresh My Documents</button>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrustVault - My Vault</title>
+<style>
+  *{box-sizing:border-box;font-family:Inter,Arial,sans-serif}
+  body{margin:0;background:#0f172a;color:#fff;min-height:100vh;padding:20px}
+  .wrap{max-width:520px;margin:0 auto}
+  .card{background:#fff;color:#111;border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+  h2{margin:0 0 14px;font-size:22px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tabs button{flex:1;padding:10px;border:0;border-radius:10px;cursor:pointer;font-weight:700;background:#e2e8f0}
+  .tabs button.active{background:#2563eb;color:#fff}
+  input{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:10px;font-size:15px}
+  .btn{width:100%;padding:13px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer;font-size:15px}
+  .btn.green{background:#0891b2}
+  .msg{margin:10px 0;font-weight:600;font-size:14px}
+  .msg.ok{color:#15803d}
+  .msg.err{color:#dc2626}
+  .small{font-size:13px;color:#64748b;text-align:center;margin-top:8px}
+  .row{display:flex;gap:8px}
+  .row button{padding:7px 12px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;cursor:pointer}
+  .doc{border-top:1px solid #e2e8f0;padding:12px 0}
+  .doc b{display:block}
+  .link{color:#2563eb;text-decoration:none;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="text-align:center;margin-bottom:16px">
+    <h1 style="margin:0">🔐 TrustVault</h1>
+    <p style="color:#cbd5e1;margin:6px 0 0">Your Documents. Only Your People.</p>
+    <a class="link" href="/">← Back to Home</a>
+  </div>
+
+  <div class="card">
+    <h2>Welcome to Your Vault</h2>
+    <div class="tabs">
+      <button id="tabLogin" class="active" onclick="showTab('login')">Login</button>
+      <button id="tabRegister" onclick="showTab('register')">Register</button>
+    </div>
+
+    <div id="loginBox">
+      <input id="loginEmail" type="email" placeholder="Email - ex: sonia@gmail.com">
+      <input id="loginPassword" type="password" placeholder="Password">
+      <button class="btn" onclick="doLogin()">Login →</button>
+      <div class="small">Demo: sonia@test.com / password123</div>
+    </div>
+
+    <div id="registerBox" style="display:none">
+      <input id="regName" type="text" placeholder="Full Name - ex: Shaik Sonia">
+      <input id="regEmail" type="email" placeholder="Email - ex: sonia@gmail.com">
+      <input id="regPassword" type="password" placeholder="Password">
+      <button class="btn" onclick="doRegister()">Create Account</button>
+    </div>
+
+    <div id="authMsg" class="msg"></div>
+    <button class="btn" style="background:#f1f5f9;color:#111;margin-top:6px" onclick="doLogout()">Logout & Revoke Token</button>
+    <button class="btn" style="background:#f1f5f9;color:#111;margin-top:6px" onclick="loadDocs()">Refresh My Documents</button>
+  </div>
+
+  <div class="card">
+    <h2>My Documents</h2>
+    <input id="searchBox" placeholder="Search - ex: resume" oninput="loadDocs()">
+    <input id="fileInput" type="file">
+    <button class="btn green" onclick="doUpload()">Upload Document</button>
+    <div id="uploadMsg" class="msg"></div>
+    <div id="docList"></div>
+  </div>
 </div>
-<div class="card"><h3>My Documents</h3><input id="searchBox" placeholder="Search - ex: resume" oninput="loadDocs()"><input type="file" id="fileInput"><button class="btn" onclick="doUpload()">Upload Document</button><div id="docs"></div></div>
+
 <script>
-let token = localStorage.getItem('tv_token') || '';
-function showTab(t){document.getElementById('regBox').style.display=t==='reg'?'block':'none';document.getElementById('loginBox').style.display=t==='login'?'block':'none';document.getElementById('tabLogin').className=t==='login'?'active':'inactive';document.getElementById('tabReg').className=t==='reg'?'active':'inactive';}
-function showMsg(txt,ok){const m=document.getElementById('msg');m.textContent=txt;m.className=ok?'msg ok':'msg';}
-function showErr(d){let t='';try{if(typeof d==='string')t=d;else if(d.detail){if(typeof d.detail==='string')t=d.detail;else t=JSON.stringify(d.detail);}else t=JSON.stringify(d);}catch(e){t='Something went wrong';}showMsg(t,false);}
-async function doRegister(){const name=document.getElementById('regName').value.trim();const email=document.getElementById('regEmail').value.trim();const password=document.getElementById('regPass').value;const role=document.getElementById('regRole').value;if(!name||!email||!password){showMsg('Name, Email, Password anni ivvu');return;}try{const r=await fetch('/auth/register?name='+encodeURIComponent(name)+'&email='+encodeURIComponent(email)+'&password='+encodeURIComponent(password)+'&role='+encodeURIComponent(role),{method:'POST'});const d=await r.json();if(!r.ok){showErr(d);return;}showMsg('Account created! you can login now.',true);showTab('login');}catch(e){showMsg('Network error: '+e.message);}}
-async function doLogin(){const email=document.getElementById('logEmail').value.trim();const password=document.getElementById('logPass').value;if(!email||!password){showMsg('Email, Password ivvu');return;}try{const r=await fetch('/auth/login?email='+encodeURIComponent(email)+'&password='+encodeURIComponent(password),{method:'POST'});const d=await r.json();if(!r.ok){showErr(d);return;}token=d.access_token||d.token||'';localStorage.setItem('tv_token',token);showMsg('Login Success! Documents loading...',true);loadDocs();}catch(e){showMsg('Network error: '+e.message);}}
-async function doLogout(){token='';localStorage.removeItem('tv_token');showMsg('Logged out',true);}
-async function loadDocs(){if(!token){document.getElementById('docs').innerHTML='<p>Login cheste documents kanipisthayi.</p>';return;}const q=document.getElementById('searchBox').value.trim();let url='/documents/?search='+encodeURIComponent(q);try{const r=await fetch(url,{headers:{'Authorization':'Bearer '+token}});const d=await r.json();if(!r.ok){showErr(d);return;}const box=document.getElementById('docs');if(!Array.isArray(d)||d.length===0){box.innerHTML='<p>Documents levu.</p>';return;}box.innerHTML=d.map(x=>'<div class="doc"><b>'+(x.filename||'File')+'</b><br>ID: '+x.id+'<br><button onclick="downloadDoc('+x.id+',\''+(x.filename||'file')+'\')">Download</button> <button onclick="shareDoc('+x.id+')">Share</button> <button onclick="unshareDoc('+x.id+')">Unshare</button></div>').join('');}catch(e){showMsg('Network error: '+e.message);}}
-async function doUpload(){const f=document.getElementById('fileInput').files[0];if(!f){showMsg('File select chey');return;}const fd=new FormData();fd.append('file',f);try{const r=await fetch('/documents/upload',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});const d=await r.json();if(!r.ok){showErr(d);return;}showMsg('Upload Success: '+d.filename,true);loadDocs();}catch(e){showMsg('Network error: '+e.message);}}
-async function downloadDoc(id,name){try{const r=await fetch('/documents/'+id+'/download',{headers:{'Authorization':'Bearer '+token}});if(!r.ok){const d=await r.json();showErr(d);return;}const b=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();}catch(e){showMsg('Download error: '+e.message);}}
-async function shareDoc(id){const em=prompt('Share cheyali anukunna mail ivvu - ex: priya@gmail.com');if(!em)return;try{const r=await fetch('/documents/'+id+'/share?user_email='+encodeURIComponent(em),{method:'POST',headers:{'Authorization':'Bearer '+token}});const d=await r.json();if(!r.ok){showErr(d);return;}showMsg(d.detail||'Shared!',true);loadDocs();}catch(e){showMsg('Share error: '+e.message);}}
-async function unshareDoc(id){const em=prompt('Unshare cheyali anukunna mail ivvu - ex: priya@gmail.com');if(!em)return;try{const r=await fetch('/documents/'+id+'/share?user_email='+encodeURIComponent(em),{method:'DELETE',headers:{'Authorization':'Bearer '+token}});const d=await r.json();if(!r.ok){showErr(d);return;}showMsg(d.detail||'Unshared!',true);loadDocs();}catch(e){showMsg('Unshare error: '+e.message);}}
-showTab('login');if(token)loadDocs();
-</script></body></html>
+let token = localStorage.getItem('trustvault_token') || '';
+
+function showTab(t){
+  document.getElementById('loginBox').style.display = t==='login' ? 'block':'none';
+  document.getElementById('registerBox').style.display = t==='register' ? 'block':'none';
+  document.getElementById('tabLogin').classList.toggle('active', t==='login');
+  document.getElementById('tabRegister').classList.toggle('active', t==='register');
+}
+function showMsg(id, text, ok){
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'ok':'err');
+}
+async function doRegister(){
+  const name = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const password = document.getElementById('regPassword').value;
+  if(!name || !email || !password){ showMsg('authMsg','Please fill all fields',false); return; }
+  try{
+    const params = new URLSearchParams({name, email, password});
+    const r = await fetch('/api/auth/register?' + params.toString(), {method:'POST'});
+    const d = await r.json();
+    showMsg('authMsg', d.message || 'Account created! Please Login now', true);
+    if(d.message && d.message.includes('created')) showTab('login');
+  }catch(e){ showMsg('authMsg','Network error: ' + e.message, false); }
+}
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  if(!email || !password){ showMsg('authMsg','Please enter email and password',false); return; }
+  try{
+    const params = new URLSearchParams({email, password});
+    const r = await fetch('/api/auth/login?' + params.toString(), {method:'POST'});
+    const d = await r.json();
+    if(!r.ok){ showMsg('authMsg', d.detail || 'Invalid email or password', false); return; }
+    token = d.access_token;
+    localStorage.setItem('trustvault_token', token);
+    showMsg('authMsg','Login Success! Documents loading...', true);
+    loadDocs();
+  }catch(e){ showMsg('authMsg','Network error: ' + e.message, false); }
+}
+async function doLogout(){
+  try{
+    if(token){
+      await fetch('/api/auth/logout', {method:'POST', headers:{'Authorization':'Bearer ' + token}});
+    }
+  }catch(e){}
+  token = '';
+  localStorage.removeItem('trustvault_token');
+  showMsg('authMsg','Logged out', true);
+  document.getElementById('docList').innerHTML = '';
+}
+async function loadDocs(){
+  if(!token) return;
+  const search = document.getElementById('searchBox').value.trim();
+  let url = '/api/documents/?';
+  if(search) url += 'search=' + encodeURIComponent(search);
+  try{
+    const r = await fetch(url, {headers:{'Authorization':'Bearer ' + token}});
+    const d = await r.json();
+    if(!r.ok){ showMsg('authMsg', d.detail || 'Not authenticated', false); return; }
+    const list = document.getElementById('docList');
+    if(!d.length){ list.innerHTML = '<p class="small">No documents found. Upload a document.</p>'; return; }
+    list.innerHTML = d.map(doc => `
+      <div class="doc">
+        <b>${doc.filename}</b>
+        <span class="small">ID: ${doc.id}</span>
+        <div class="row" style="margin-top:8px">
+          <button onclick="doDownload(${doc.id},'${doc.filename}')">Download</button>
+          <button onclick="doShare(${doc.id})">Share</button>
+          <button onclick="doUnshare(${doc.id})">Unshare</button>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){ showMsg('authMsg','Network error: ' + e.message, false); }
+}
+async function doUpload(){
+  const f = document.getElementById('fileInput').files[0];
+  if(!f){ showMsg('uploadMsg','Please choose a file first', false); return; }
+  if(!token){ showMsg('uploadMsg','Please login first', false); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  try{
+    const r = await fetch('/api/documents/upload', {method:'POST', headers:{'Authorization':'Bearer ' + token}, body: fd});
+    const d = await r.json();
+    if(!r.ok){ showMsg('uploadMsg', d.detail || 'Upload failed', false); return; }
+    showMsg('uploadMsg','Upload Success: ' + d.filename, true);
+    loadDocs();
+  }catch(e){ showMsg('uploadMsg','Network error: ' + e.message, false); }
+}
+async function doDownload(id, filename){
+  try{
+    const r = await fetch('/api/documents/' + id + '/download', {headers:{'Authorization':'Bearer ' + token}});
+    if(!r.ok){ alert('Download failed'); return; }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }catch(e){ alert('Download failed: ' + e.message); }
+}
+async function doShare(id){
+  const email = prompt('Enter email to share with:');
+  if(!email) return;
+  const params = new URLSearchParams({user_email: email});
+  const r = await fetch('/api/documents/' + id + '/share?' + params.toString(), {method:'POST', headers:{'Authorization':'Bearer ' + token}});
+  const d = await r.json();
+  alert(d.message || d.detail || 'Shared');
+  loadDocs();
+}
+async function doUnshare(id){
+  const email = prompt('Enter email to unshare:');
+  if(!email) return;
+  const params = new URLSearchParams({user_email: email});
+  const r = await fetch('/api/documents/' + id + '/share?' + params.toString(), {method:'DELETE', headers:{'Authorization':'Bearer ' + token}});
+  const d = await r.json();
+  alert(d.message || d.detail || 'Unshared');
+  loadDocs();
+}
+if(token) loadDocs();
+</script>
+</body>
+</html>
