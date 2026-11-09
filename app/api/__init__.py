@@ -96,16 +96,35 @@ document_router = APIRouter(prefix="/documents", tags=["Documents"])
 audit_router = APIRouter(prefix="/audit", tags=["Audit"])
 document = document_router
 
-@auth_router.post("/register")
+@router.post("/auth/register")
 def register(name: str, email: str, password: str, role: str = "VIEWER", db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(name=name, email=email, password_hash=get_password_hash(password), role=role.upper())
+    from sqlalchemy import inspect as _inspect
+    cols = [c.key for c in _inspect(User).columns]
+    # already unna user?
+    try:
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            return {"message": "User already exists, please Login"}
+    except Exception:
+        pass
+
+    # password field peru auto-detect
+    pwd_hash = get_password_hash(password)
+    data = {}
+    if "email" in cols: data["email"] = email
+    if "password_hash" in cols: data["password_hash"] = pwd_hash
+    elif "hashed_password" in cols: data["hashed_password"] = pwd_hash
+    elif "password" in cols: data["password"] = pwd_hash
+    if "name" in cols: data["name"] = name
+    elif "full_name" in cols: data["full_name"] = name
+    elif "username" in cols: data["username"] = name
+    if "role" in cols: data["role"] = role
+
+    user = User(**data)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"detail": "User registered", "id": user.id, "email": user.email}
+    return {"message": "Account created! Please Login", "email": email}
 
 @auth_router.post("/login")
 def login(email: str, password: str, db: Session = Depends(get_db)):
