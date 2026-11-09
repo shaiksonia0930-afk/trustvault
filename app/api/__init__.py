@@ -1,14 +1,14 @@
-# app/api/__init__.py - TrustVault FULL FILE
+# app/api/__init__.py - TrustVault FULL FILE - Header Fix Version
 import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Header
 from fastapi.responses import FileResponse
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
-# ---------- get_db - ekkada unna teesukuntundi ----------
+# ---------- get_db ----------
 try:
     from app.database import get_db, SessionLocal, engine
 except ImportError:
@@ -25,14 +25,6 @@ except ImportError:
     Permission = None
     AuditLog = None
 
-# ---------- Schemas (unna vati matrame) ----------
-try:
-    from app.schemas import UserCreate, UserLogin
-except ImportError:
-    UserCreate = None
-    UserLogin = None
-
-# ---------- Security - fail ayina kuda pani cheyali ----------
 SECRET_KEY = "trustvault-secret-key-change-in-prod"
 ALGORITHM = "HS256"
 
@@ -129,7 +121,8 @@ def _audit(db: Session, user_email: str, action: str, doc_id=None):
         try: db.rollback()
         except Exception: pass
 
-def get_current_user(token: str = Query(None), authorization: str = None, db: Session = Depends(get_db)):
+# ---------- FIXED: Header tho token chaduvutundi ----------
+def get_current_user(authorization: str = Header(None), token: str = Query(None), db: Session = Depends(get_db)):
     raw = None
     if authorization and authorization.startswith("Bearer "):
         raw = authorization[7:]
@@ -148,7 +141,6 @@ def get_current_user(token: str = Query(None), authorization: str = None, db: Se
 
 router = APIRouter()
 
-# ---------- AUTH ----------
 @router.post("/auth/register")
 def register(name: str, email: str, password: str, role: str = "VIEWER", db: Session = Depends(get_db)):
     try:
@@ -194,15 +186,16 @@ def logout(db: Session = Depends(get_db), current_user=Depends(get_current_user)
     _audit(db, current_user.email, "LOGOUT")
     return {"message": "Logged out, token revoked"}
 
-# ---------- DOCUMENTS ----------
 @router.get("/documents/")
 def list_documents(search: str = Query(None), db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     q = db.query(Document)
-    # owner docs + shared docs
     try:
         if Permission is not None:
             shared_ids = [p.document_id for p in db.query(Permission).filter(Permission.user_id == current_user.id).all()]
-            q = q.filter((Document.owner_id == current_user.id) | (Document.id.in_(shared_ids)) if shared_ids else (Document.owner_id == current_user.id))
+            if shared_ids:
+                q = q.filter((Document.owner_id == current_user.id) | (Document.id.in_(shared_ids)))
+            else:
+                q = q.filter(Document.owner_id == current_user.id)
         else:
             q = q.filter(Document.owner_id == current_user.id)
     except Exception:
@@ -252,7 +245,6 @@ def get_doc(doc_id: int, db: Session = Depends(get_db), current_user=Depends(get
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    # IDOR check
     is_owner = getattr(doc, "owner_id", None) == current_user.id
     has_perm = False
     if Permission is not None:
@@ -319,7 +311,6 @@ def unshare_doc(doc_id: int, user_email: str, db: Session = Depends(get_db), cur
     _audit(db, current_user.email, "SHARE_REVOKED", doc_id)
     return {"message": f"Unshared from {user_email}"}
 
-# ---------- AUDIT ----------
 @router.get("/audit/")
 def get_audit(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     is_admin = str(getattr(current_user, "role", "")).upper().find("ADMIN") != -1
