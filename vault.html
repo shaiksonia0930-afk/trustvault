@@ -5,7 +5,7 @@
 <title>TrustVault - My Vault</title>
 <style>
 body{margin:0;background:#0f172a;color:#fff;font-family:Arial;padding:20px}
-.wrap{max-width:640px;margin:0 auto}
+.wrap{max-width:680px;margin:0 auto}
 .card{background:#fff;color:#111;border-radius:16px;padding:20px;margin-bottom:16px}
 input{width:100%;padding:11px;border:1px solid #ccc;border-radius:10px;margin-bottom:10px}
 .btn{width:100%;padding:12px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
@@ -15,12 +15,27 @@ input{width:100%;padding:11px;border:1px solid #ccc;border-radius:10px;margin-bo
 table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
 th{background:#111827;color:#fff;padding:8px;text-align:left}
 td{padding:8px;border-bottom:1px solid #eee}
+.stat{display:flex;gap:10px;margin-top:10px}
+.statbox{flex:1;background:#f1f5f9;border-radius:12px;padding:12px;text-align:center}
+.statbox b{font-size:22px;display:block}
+.bar{height:10px;background:#e2e8f0;border-radius:10px;margin-top:6px;overflow:hidden}
+.barfill{height:100%;background:#2563eb}
 </style>
 </head>
 <body>
 <div class="wrap">
 <h1 style="text-align:center">TrustVault</h1>
 <p style="text-align:center">Your Documents. Only Your People.</p>
+<div class="card">
+<h2>Dashboard</h2>
+<div class="stat">
+<div class="statbox">Active Users<b id="statUsers">0</b><div class="bar"><div id="barUsers" class="barfill" style="width:0%"></div></div></div>
+<div class="statbox">Logins<b id="statLogins">0</b><div class="bar"><div id="barLogins" class="barfill" style="width:0%;background:#0891b2"></div></div></div>
+<div class="statbox">Documents<b id="statDocs">0</b><div class="bar"><div id="barDocs" class="barfill" style="width:0%;background:#16a34a"></div></div></div>
+</div>
+<div class="small" id="statMsg" style="text-align:center;margin-top:8px;color:#64748b"></div>
+<button class="btn2" onclick="loadStats()">Refresh Dashboard</button>
+</div>
 <div class="card">
 <h2>Login / Register</h2>
 <button class="btn2" onclick="showTab('login')">Login</button>
@@ -56,6 +71,8 @@ td{padding:8px;border-bottom:1px solid #eee}
 </div>
 <script>
 var token = localStorage.getItem('tv_token') || '';
+var allDocs = [];
+var allAudit = [];
 function showTab(t){
 document.getElementById('loginBox').style.display = t==='login' ? 'block':'none';
 document.getElementById('registerBox').style.display = t==='register' ? 'block':'none';
@@ -86,7 +103,7 @@ var r=await fetch('/auth/login?'+p.toString(),{method:'POST'});
 var d=await r.json();
 if(!r.ok){msg('authMsg',d.detail||'Invalid email or password',false);return;}
 token=d.access_token; localStorage.setItem('tv_token',token);
-msg('authMsg','Login Success!',true); loadDocs();
+msg('authMsg','Login Success!',true); loadDocs(); loadStats();
 }catch(e){msg('authMsg','Network error',false);}
 }
 async function doLogout(){
@@ -102,11 +119,12 @@ try{
 var r=await fetch(url,{headers:{'Authorization':'Bearer '+token}});
 var d=await r.json();
 if(!r.ok){msg('authMsg',d.detail||'Not authenticated',false);return;}
+allDocs=d;
 var list=document.getElementById('docList');
 if(!d.length){list.innerHTML='No documents found.';return;}
 var h='';
 for(var i=0;i<d.length;i++){h+='<div style="border-top:1px solid #eee;padding:10px 0"><b>'+d[i].filename+'</b><br>ID: '+d[i].id+'<br><button onclick="doDownload('+d[i].id+',\''+d[i].filename+'\')">Download</button> <button onclick="doShare('+d[i].id+')">Share</button> <button onclick="doUnshare('+d[i].id+')">Unshare</button></div>';}
-list.innerHTML=h;
+list.innerHTML=h; updateStats();
 }catch(e){msg('authMsg','Network error',false);}
 }
 async function doUpload(){
@@ -118,7 +136,7 @@ try{
 var r=await fetch('/documents/upload',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
 var d=await r.json();
 if(!r.ok){msg('uploadMsg',d.detail||'Upload failed',false);return;}
-msg('uploadMsg','Upload Success: '+d.filename,true); loadDocs();
+msg('uploadMsg','Upload Success: '+d.filename,true); loadDocs(); loadStats();
 }catch(e){msg('uploadMsg','Network error',false);}
 }
 async function doDownload(id,filename){
@@ -146,15 +164,41 @@ try{
 var r=await fetch('/audit/',{headers:{'Authorization':'Bearer '+token}});
 var d=await r.json();
 if(!r.ok){msg('auditMsg',d.detail||'Admin only',false);return;}
+allAudit=d;
 if(!d.length){msg('auditMsg','No audit logs yet',true);return;}
 msg('auditMsg','Audit Log loaded - '+d.length+' records',true);
 var h='<table><tr><th>Name</th><th>Email</th><th>Action</th><th>Document</th><th>Time</th></tr>';
 for(var i=0;i<d.length;i++){var l=d[i]; h+='<tr><td>'+(l.user_name||'-')+'</td><td>'+(l.user_email||'-')+'</td><td>'+(l.action||'-')+'</td><td>'+(l.document_name||('ID '+(l.doc_id||'-')))+'</td><td>'+(l.timestamp||'')+'</td></tr>';}
 h+='</table>';
-document.getElementById('auditList').innerHTML=h;
+document.getElementById('auditList').innerHTML=h; updateStats();
 }catch(e){msg('auditMsg','Network error',false);}
 }
-if(token) loadDocs();
+async function loadStats(){
+if(!token) return;
+await loadDocs();
+await loadAudit();
+updateStats();
+}
+function updateStats(){
+var users={}; var logins=0;
+for(var i=0;i<allAudit.length;i++){
+var l=allAudit[i];
+var key=l.user_email||l.user_id||l.user_name||'';
+if(key && key!=='-' && key!=='') users[key]=1;
+if(l.action==='LOGIN') logins++;
+}
+var uCount=Object.keys(users).length;
+var dCount=allDocs.length;
+var max=Math.max(uCount,logins,dCount,1);
+document.getElementById('statUsers').textContent=uCount;
+document.getElementById('statLogins').textContent=logins;
+document.getElementById('statDocs').textContent=dCount;
+document.getElementById('barUsers').style.width=(uCount/max*100)+'%';
+document.getElementById('barLogins').style.width=(logins/max*100)+'%';
+document.getElementById('barDocs').style.width=(dCount/max*100)+'%';
+document.getElementById('statMsg').textContent=uCount+' active users | '+logins+' logins | '+dCount+' documents';
+}
+if(token){ loadDocs(); loadStats(); }
 </script>
 </body>
 </html>
