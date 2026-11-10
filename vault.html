@@ -5,7 +5,7 @@
 <title>TrustVault - My Vault</title>
 <style>
 body{margin:0;background:#0f172a;color:#fff;font-family:Arial;padding:20px}
-.wrap{max-width:680px;margin:0 auto}
+.wrap{max-width:720px;margin:0 auto}
 .card{background:#fff;color:#111;border-radius:16px;padding:20px;margin-bottom:16px}
 input{width:100%;padding:11px;border:1px solid #ccc;border-radius:10px;margin-bottom:10px}
 .btn{width:100%;padding:12px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
@@ -14,7 +14,7 @@ input{width:100%;padding:11px;border:1px solid #ccc;border-radius:10px;margin-bo
 .ok{color:green}.err{color:red}
 table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
 th{background:#111827;color:#fff;padding:8px;text-align:left}
-td{padding:8px;border-bottom:1px solid #eee}
+td{padding:8px;border-bottom:1px solid #eee;vertical-align:top}
 .stat{display:flex;gap:10px;margin-top:10px}
 .statbox{flex:1;background:#f1f5f9;border-radius:12px;padding:12px;text-align:center}
 .statbox b{font-size:22px;display:block}
@@ -26,6 +26,7 @@ td{padding:8px;border-bottom:1px solid #eee}
 <div class="wrap">
 <h1 style="text-align:center">TrustVault</h1>
 <p style="text-align:center">Your Documents. Only Your People.</p>
+
 <div class="card">
 <h2>Dashboard</h2>
 <div class="stat">
@@ -33,9 +34,17 @@ td{padding:8px;border-bottom:1px solid #eee}
 <div class="statbox">Logins<b id="statLogins">0</b><div class="bar"><div id="barLogins" class="barfill" style="width:0%;background:#0891b2"></div></div></div>
 <div class="statbox">Documents<b id="statDocs">0</b><div class="bar"><div id="barDocs" class="barfill" style="width:0%;background:#16a34a"></div></div></div>
 </div>
-<div class="small" id="statMsg" style="text-align:center;margin-top:8px;color:#64748b"></div>
+<div id="statMsg" style="text-align:center;margin-top:8px;color:#64748b"></div>
 <button class="btn2" onclick="loadStats()">Refresh Dashboard</button>
 </div>
+
+<div class="card">
+<h2>Active Users - Name + Email + Documents</h2>
+<button class="btn" onclick="loadActiveUsers()">View Active Users</button>
+<div id="activeMsg" class="msg"></div>
+<div id="activeList"></div>
+</div>
+
 <div class="card">
 <h2>Login / Register</h2>
 <button class="btn2" onclick="showTab('login')">Login</button>
@@ -54,6 +63,7 @@ td{padding:8px;border-bottom:1px solid #eee}
 <div id="authMsg" class="msg"></div>
 <button class="btn2" onclick="doLogout()">Logout</button>
 </div>
+
 <div class="card">
 <h2>My Documents</h2>
 <input id="searchBox" placeholder="Search" oninput="loadDocs()">
@@ -62,6 +72,7 @@ td{padding:8px;border-bottom:1px solid #eee}
 <div id="uploadMsg" class="msg"></div>
 <div id="docList"></div>
 </div>
+
 <div class="card">
 <h2>Audit Log</h2>
 <button class="btn" onclick="loadAudit()">View Audit Log</button>
@@ -69,6 +80,7 @@ td{padding:8px;border-bottom:1px solid #eee}
 <div id="auditList"></div>
 </div>
 </div>
+
 <script>
 var token = localStorage.getItem('tv_token') || '';
 var allDocs = [];
@@ -109,7 +121,7 @@ msg('authMsg','Login Success!',true); loadDocs(); loadStats();
 async function doLogout(){
 try{if(token) await fetch('/auth/logout',{method:'POST',headers:{'Authorization':'Bearer '+token}});}catch(e){}
 token=''; localStorage.removeItem('tv_token'); msg('authMsg','Logged out',true);
-document.getElementById('docList').innerHTML=''; document.getElementById('auditList').innerHTML='';
+document.getElementById('docList').innerHTML=''; document.getElementById('auditList').innerHTML=''; document.getElementById('activeList').innerHTML='';
 }
 async function loadDocs(){
 if(!token) return;
@@ -172,6 +184,35 @@ for(var i=0;i<d.length;i++){var l=d[i]; h+='<tr><td>'+(l.user_name||'-')+'</td><
 h+='</table>';
 document.getElementById('auditList').innerHTML=h; updateStats();
 }catch(e){msg('auditMsg','Network error',false);}
+}
+async function loadActiveUsers(){
+if(!token){msg('activeMsg','Please login as Admin first',false);return;}
+if(!allAudit.length) await loadAudit();
+if(!allAudit.length){msg('activeMsg','No active users yet',false);return;}
+var map={};
+for(var i=0;i<allAudit.length;i++){
+var l=allAudit[i];
+var email=l.user_email||'';
+var name=l.user_name||'';
+if(!email || email==='-') continue;
+if(!map[email]) map[email]={name:name, email:email, docs:[], logins:0};
+if(name && name!=='-' && map[email].name==='-') map[email].name=name;
+if(l.action==='LOGIN') map[email].logins++;
+var dn=l.document_name||'';
+if((l.action==='UPLOAD'||l.action==='DOWNLOAD') && dn && dn!=='-' && map[email].docs.indexOf(dn)===-1) map[email].docs.push(dn);
+}
+var keys=Object.keys(map);
+if(!keys.length){msg('activeMsg','No active users found - New Login + Upload cheyandi',false);return;}
+msg('activeMsg',keys.length+' Active Users found',true);
+var h='<table><tr><th>Name</th><th>Email</th><th>Documents</th><th>Total Docs</th></tr>';
+for(var k=0;k<keys.length;k++){
+var u=map[keys[k]];
+var docList=u.docs.length?u.docs.join('<br>'):'No documents yet';
+h+='<tr><td>'+(u.name||'-')+'</td><td>'+u.email+'</td><td>'+docList+'</td><td><b>'+u.docs.length+'</b></td></tr>';
+}
+h+='</table>';
+document.getElementById('activeList').innerHTML=h;
+updateStats();
 }
 async function loadStats(){
 if(!token) return;
